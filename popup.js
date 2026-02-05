@@ -278,7 +278,6 @@ document.addEventListener('DOMContentLoaded', () => {
   
   const searchInput = document.getElementById('search-input');
   let debounceTimeout;
-  let refreshInterval;
   
   // Debounced render function to avoid excessive re-renders
   const debouncedRender = () => {
@@ -323,7 +322,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // Cleanup listeners when popup is closed
   window.addEventListener('unload', () => {
     clearTimeout(debounceTimeout);
-    clearInterval(refreshInterval);
     
     if (chrome.tabs) {
       if (chrome.tabs.onUpdated) {
