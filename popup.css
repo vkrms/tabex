@@ -39,6 +39,13 @@ h1 {
 .stats {
   font-size: 14px;
   opacity: 0.9;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stats-separator {
+  opacity: 0.6;
 }
 
 .search-container {

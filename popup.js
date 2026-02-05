@@ -251,7 +251,15 @@ async function renderTabs(searchQuery = '') {
     container.appendChild(windowGroup);
   });
   
-  // Update tab count
+  // Update window and tab counts
+  const windowCount = windows.filter(w => w.tabs.filter(tab => {
+    if (!query) return true;
+    return tab.title.toLowerCase().includes(query) || 
+           tab.url.toLowerCase().includes(query);
+  }).length > 0).length;
+  
+  document.getElementById('window-count').textContent = 
+    `${windowCount} window${windowCount !== 1 ? 's' : ''}`;
   document.getElementById('tab-count').textContent = 
     `${totalTabs} tab${totalTabs !== 1 ? 's' : ''}`;
   
