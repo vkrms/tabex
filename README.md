@@ -42,7 +42,7 @@ Each tab displays the following information:
 - **Active Status**: Shows which tab is currently active with a green "Active" badge
 - **Pinned Status**: Shows if a tab is pinned with a 📌 icon
 - **Group Information**: If a tab is in a group, it shows the group name with a colored indicator
-- **Last Accessed**: Displays how long ago the tab was last accessed (updates in real-time)
+- **Last Accessed**: Displays how long ago the tab was last accessed
 
 ### Window Organization
 
