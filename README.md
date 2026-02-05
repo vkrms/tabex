@@ -27,7 +27,7 @@ A Chrome browser extension that helps you manage and explore all your tabs acros
 
 ## Usage
 
-1. Click the TabEx icon in your browser toolbar to open the popup
+1. Click the TabEx icon in your browser toolbar to open the interface in a new tab
 2. Browse through all your tabs organized by window
 3. Use the search bar to filter tabs by title or URL
 4. Double-click on any tab to switch to it instantly
