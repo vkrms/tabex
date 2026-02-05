@@ -1,12 +1,8 @@
 // Tab metadata tracking
 const tabAccessTimes = new Map();
 
-// Track when tabs are accessed
-if (chrome.tabs && chrome.tabs.onActivated) {
-  chrome.tabs.onActivated.addListener((activeInfo) => {
-    tabAccessTimes.set(activeInfo.tabId, Date.now());
-  });
-}
+// Default favicon SVG for tabs without a favicon
+const DEFAULT_FAVICON = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="%23ddd"/></svg>';
 
 // Utility function to format time ago
 function formatTimeAgo(timestamp) {
@@ -36,7 +32,7 @@ function getFaviconUrl(tab) {
     const url = new URL(tab.url);
     return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=16`;
   } catch (e) {
-    return 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="%23ddd"/></svg>';
+    return DEFAULT_FAVICON;
   }
 }
 
@@ -119,7 +115,7 @@ function createTabElement(tab, windowId) {
   const faviconImg = document.createElement('img');
   faviconImg.src = tab.favIconUrl;
   faviconImg.onerror = function() {
-    this.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="%23ddd"/></svg>';
+    this.src = DEFAULT_FAVICON;
   };
   favicon.appendChild(faviconImg);
   tabItem.appendChild(favicon);
@@ -236,7 +232,7 @@ async function renderTabs(searchQuery = '') {
     windowHeader.className = 'window-header';
     
     const windowTitle = document.createElement('span');
-    windowTitle.textContent = `Window ${window.focused ? '(Current)' : ''}`;
+    windowTitle.textContent = window.focused ? 'Window (Current)' : 'Window';
     
     const windowInfo = document.createElement('span');
     windowInfo.className = 'window-id';
@@ -267,13 +263,11 @@ async function renderTabs(searchQuery = '') {
 // Initialize search functionality
 function initSearch() {
   const searchInput = document.getElementById('search-input');
-  let searchTimeout;
   
+  // Note: debouncing is handled in the main initialization
   searchInput.addEventListener('input', (e) => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-      renderTabs(e.target.value);
-    }, 300);
+    // Trigger debounced render via custom event
+    window.dispatchEvent(new CustomEvent('tabsearch', { detail: e.target.value }));
   });
 }
 
@@ -282,9 +276,73 @@ document.addEventListener('DOMContentLoaded', () => {
   initSearch();
   renderTabs();
   
-  // Refresh tabs every 2 seconds to update "time ago" and catch new tabs
-  setInterval(() => {
-    const searchInput = document.getElementById('search-input');
+  const searchInput = document.getElementById('search-input');
+  let debounceTimeout;
+  let refreshInterval;
+  
+  // Debounced render function to avoid excessive re-renders
+  const debouncedRender = () => {
+    clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(() => {
+      renderTabs(searchInput.value);
+    }, 300);
+  };
+  
+  // Handle search input via custom event
+  window.addEventListener('tabsearch', (e) => {
+    clearTimeout(debounceTimeout);
+    debounceTimeout = setTimeout(() => {
+      renderTabs(e.detail);
+    }, 300);
+  });
+  
+  // Listen for tab changes to update in real-time
+  const onUpdatedListener = () => debouncedRender();
+  const onCreatedListener = () => debouncedRender();
+  const onRemovedListener = () => debouncedRender();
+  const onActivatedListener = (activeInfo) => {
+    tabAccessTimes.set(activeInfo.tabId, Date.now());
+    debouncedRender();
+  };
+  
+  if (chrome.tabs) {
+    if (chrome.tabs.onUpdated) {
+      chrome.tabs.onUpdated.addListener(onUpdatedListener);
+    }
+    if (chrome.tabs.onCreated) {
+      chrome.tabs.onCreated.addListener(onCreatedListener);
+    }
+    if (chrome.tabs.onRemoved) {
+      chrome.tabs.onRemoved.addListener(onRemovedListener);
+    }
+    if (chrome.tabs.onActivated) {
+      chrome.tabs.onActivated.addListener(onActivatedListener);
+    }
+  }
+  
+  // Update time ago display every 30 seconds (lighter weight)
+  refreshInterval = setInterval(() => {
     renderTabs(searchInput.value);
-  }, 2000);
+  }, 30000);
+  
+  // Cleanup listeners when popup is closed
+  window.addEventListener('unload', () => {
+    clearTimeout(debounceTimeout);
+    clearInterval(refreshInterval);
+    
+    if (chrome.tabs) {
+      if (chrome.tabs.onUpdated) {
+        chrome.tabs.onUpdated.removeListener(onUpdatedListener);
+      }
+      if (chrome.tabs.onCreated) {
+        chrome.tabs.onCreated.removeListener(onCreatedListener);
+      }
+      if (chrome.tabs.onRemoved) {
+        chrome.tabs.onRemoved.removeListener(onRemovedListener);
+      }
+      if (chrome.tabs.onActivated) {
+        chrome.tabs.onActivated.removeListener(onActivatedListener);
+      }
+    }
+  });
 });

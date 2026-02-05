@@ -1,0 +1,14 @@
+# Demo and test files
+demo.html
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Temporary files
+*.tmp
+*.log
+.DS_Store
