@@ -320,11 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   
-  // Update time ago display every 30 seconds (lighter weight)
-  refreshInterval = setInterval(() => {
-    renderTabs(searchInput.value);
-  }, 30000);
-  
   // Cleanup listeners when popup is closed
   window.addEventListener('unload', () => {
     clearTimeout(debounceTimeout);
