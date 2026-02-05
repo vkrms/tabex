@@ -18,6 +18,19 @@
     </header>
     <div class="search-container">
       <input type="text" id="search-input" placeholder="Search tabs...">
+      <div class="sort-control">
+        <label for="window-sort">Sort:</label>
+        <select id="window-sort">
+          <option value="tab-count-asc">Tab count ↑ (fewest first)</option>
+          <option value="tab-count-desc">Tab count ↓ (most first)</option>
+          <option value="focused-asc">Focused first</option>
+          <option value="focused-desc">Focused last</option>
+          <option value="alphabetical-asc">Alphabetical A→Z</option>
+          <option value="alphabetical-desc">Alphabetical Z→A</option>
+          <option value="last-accessed-asc">Least recently used</option>
+          <option value="last-accessed-desc">Most recently used</option>
+        </select>
+      </div>
     </div>
     <div id="tabs-container" class="tabs-list">
       <div class="loading">Loading tabs...</div>

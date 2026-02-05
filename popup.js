@@ -4,6 +4,42 @@ const tabAccessTimes = new Map();
 // Default favicon SVG for tabs without a favicon
 const DEFAULT_FAVICON = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="%23ddd"/></svg>';
 
+// Window sorting preferences
+const SORT_PREFERENCE_KEY = 'windowSortPreference';
+const DEFAULT_SORT = 'tab-count-asc';
+let currentSortPreference = DEFAULT_SORT;
+
+// Collapsed windows state
+let collapsedWindows = {};
+
+// Load collapsed windows state from storage
+async function loadCollapsedState() {
+  const result = await chrome.storage.local.get(['collapsedWindows']);
+  collapsedWindows = result.collapsedWindows || {};
+}
+
+// Save collapsed windows state to storage
+async function saveCollapsedState() {
+  await chrome.storage.local.set({ collapsedWindows });
+}
+
+// Toggle window collapse state
+function toggleWindowCollapse(windowId, windowGroup, chevron) {
+  collapsedWindows[windowId] = !collapsedWindows[windowId];
+  saveCollapsedState();
+
+  // Toggle collapsed class directly without re-rendering
+  const isCollapsed = collapsedWindows[windowId];
+  if (isCollapsed) {
+    windowGroup.classList.add('collapsed');
+  } else {
+    windowGroup.classList.remove('collapsed');
+  }
+
+  // Update chevron icon
+  chevron.textContent = isCollapsed ? '▶' : '▼';
+}
+
 // Utility function to format time ago
 function formatTimeAgo(timestamp) {
   if (!timestamp) return 'Unknown';
@@ -77,6 +113,109 @@ async function getAllTabs() {
     console.error('Error getting tabs:', error);
     return [];
   }
+}
+
+// Sort windows based on preference
+function sortWindows(windows, sortBy) {
+  const sorted = [...windows];
+
+  // Parse sort type and direction from value (e.g., "tab-count-asc")
+  const lastDashIndex = sortBy.lastIndexOf('-');
+  const sortType = sortBy.substring(0, lastDashIndex);
+  const direction = sortBy.substring(lastDashIndex + 1); // 'asc' or 'desc'
+
+  switch (sortType) {
+    case 'tab-count':
+      // Sort by tab count
+      sorted.sort((a, b) => {
+        const countDiff = a.tabs.length - b.tabs.length;
+        if (countDiff !== 0) return direction === 'asc' ? countDiff : -countDiff;
+        // Tie-breaker: focused window comes first
+        if (a.focused) return -1;
+        if (b.focused) return 1;
+        return 0;
+      });
+      break;
+
+    case 'focused':
+      // Focused window positioning
+      sorted.sort((a, b) => {
+        if (direction === 'asc') {
+          // Focused first
+          if (a.focused && !b.focused) return -1;
+          if (!a.focused && b.focused) return 1;
+        } else {
+          // Focused last
+          if (a.focused && !b.focused) return 1;
+          if (!a.focused && b.focused) return -1;
+        }
+        // Tie-breaker: sort by tab count
+        return a.tabs.length - b.tabs.length;
+      });
+      break;
+
+    case 'alphabetical':
+      // Sort by first tab title (case-insensitive)
+      sorted.sort((a, b) => {
+        const titleA = (a.tabs[0]?.title || 'Untitled').toLowerCase();
+        const titleB = (b.tabs[0]?.title || 'Untitled').toLowerCase();
+        const comparison = titleA.localeCompare(titleB);
+        return direction === 'asc' ? comparison : -comparison;
+      });
+      break;
+
+    case 'last-accessed':
+      // Sort by most recent tab access in each window
+      sorted.sort((a, b) => {
+        const maxAccessA = Math.max(...a.tabs.map(t => t.lastAccessed || 0));
+        const maxAccessB = Math.max(...b.tabs.map(t => t.lastAccessed || 0));
+        const comparison = maxAccessB - maxAccessA;
+        // Note: 'asc' means least recently used first (oldest first)
+        return direction === 'asc' ? -comparison : comparison;
+      });
+      break;
+
+    default:
+      return sorted;
+  }
+
+  return sorted;
+}
+
+// Load sort preference from storage
+async function loadSortPreference() {
+  try {
+    const result = await chrome.storage.local.get(SORT_PREFERENCE_KEY);
+    return result[SORT_PREFERENCE_KEY] || DEFAULT_SORT;
+  } catch (error) {
+    console.error('Error loading sort preference:', error);
+    return DEFAULT_SORT;
+  }
+}
+
+// Save sort preference to storage
+async function saveSortPreference(sortBy) {
+  try {
+    await chrome.storage.local.set({ [SORT_PREFERENCE_KEY]: sortBy });
+  } catch (error) {
+    console.error('Error saving sort preference:', error);
+  }
+}
+
+// Initialize sort control
+async function initSortControl() {
+  const sortSelect = document.getElementById('window-sort');
+
+  // Load saved preference
+  currentSortPreference = await loadSortPreference();
+  sortSelect.value = currentSortPreference;
+
+  // Add change event listener
+  sortSelect.addEventListener('change', async (e) => {
+    currentSortPreference = e.target.value;
+    await saveSortPreference(currentSortPreference);
+    renderTabs(document.getElementById('search-input').value);
+  });
 }
 
 // Switch to a specific tab
@@ -202,18 +341,21 @@ function getGroupColor(colorName) {
 async function renderTabs(searchQuery = '') {
   const container = document.getElementById('tabs-container');
   container.innerHTML = '';
-  
+
   const windows = await getAllTabs();
-  
+
   if (windows.length === 0) {
     container.innerHTML = '<div class="no-results">No tabs found</div>';
     return;
   }
-  
+
+  // Apply sorting
+  const sortedWindows = sortWindows(windows, currentSortPreference);
+
   let totalTabs = 0;
   const query = searchQuery.toLowerCase();
-  
-  windows.forEach(window => {
+
+  sortedWindows.forEach(window => {
     const filteredTabs = window.tabs.filter(tab => {
       if (!query) return true;
       return tab.title.toLowerCase().includes(query) || 
@@ -230,16 +372,34 @@ async function renderTabs(searchQuery = '') {
     
     const windowHeader = document.createElement('div');
     windowHeader.className = 'window-header';
-    
-    const windowTitle = document.createElement('span');
-    windowTitle.textContent = window.focused ? 'Window (Current)' : 'Window';
-    
+
+    // Add chevron icon for collapse/expand
+    const chevron = document.createElement('span');
+    chevron.className = 'window-chevron';
+    chevron.textContent = collapsedWindows[window.windowId] ? '▶' : '▼';
+
     const windowInfo = document.createElement('span');
     windowInfo.className = 'window-id';
     windowInfo.textContent = `${filteredTabs.length} tabs`;
-    
-    windowHeader.appendChild(windowTitle);
+
+    const windowTitle = document.createElement('span');
+    windowTitle.textContent = window.focused ? 'Window (Current)' : 'Window';
+
+    // Layout: [tab count] [title] [chevron]
     windowHeader.appendChild(windowInfo);
+    windowHeader.appendChild(windowTitle);
+    windowHeader.appendChild(chevron);
+
+    // Add click handler for collapse/expand
+    windowHeader.addEventListener('click', () => {
+      toggleWindowCollapse(window.windowId, windowGroup, chevron);
+    });
+
+    // Add collapsed class if needed
+    if (collapsedWindows[window.windowId]) {
+      windowGroup.classList.add('collapsed');
+    }
+
     windowGroup.appendChild(windowHeader);
     
     // Add tabs
@@ -252,7 +412,7 @@ async function renderTabs(searchQuery = '') {
   });
   
   // Update window and tab counts
-  const windowCount = windows.filter(w => w.tabs.filter(tab => {
+  const windowCount = sortedWindows.filter(w => w.tabs.filter(tab => {
     if (!query) return true;
     return tab.title.toLowerCase().includes(query) || 
            tab.url.toLowerCase().includes(query);
@@ -280,7 +440,9 @@ function initSearch() {
 }
 
 // Initialize the popup
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await initSortControl();
+  await loadCollapsedState();
   initSearch();
   renderTabs();
   

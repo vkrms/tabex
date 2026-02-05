@@ -5,7 +5,8 @@
   "description": "List and manage all tabs across all browser windows with metadata",
   "permissions": [
     "tabs",
-    "tabGroups"
+    "tabGroups",
+    "storage"
   ],
   "action": {
     "default_icon": {
