@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TabEx - Tab Explorer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Tab Explorer</h1>
+      <div class="stats">
+        <span id="tab-count">0 tabs</span>
+      </div>
+    </header>
+    <div class="search-container">
+      <input type="text" id="search-input" placeholder="Search tabs...">
+    </div>
+    <div id="tabs-container" class="tabs-list">
+      <div class="loading">Loading tabs...</div>
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
