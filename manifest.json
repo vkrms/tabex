@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "TabEx - Tab Explorer",
+  "name": "TabEx",
   "version": "1.0.0",
   "description": "List and manage all tabs across all browser windows with metadata",
   "permissions": [

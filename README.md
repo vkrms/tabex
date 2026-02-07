@@ -1,4 +1,4 @@
-# TabEx - Tab Explorer
+# TabEx
 
 A Chrome browser extension that helps you manage and explore all your tabs across all browser windows.
 
