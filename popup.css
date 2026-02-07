@@ -183,10 +183,10 @@ h1 {
   background-color: #f8f9ff;
 }
 
-.tab-item.active {
+/* .tab-item.active {
   background-color: #e8f0fe;
   border-left: 3px solid #667eea;
-}
+} */
 
 .tab-favicon {
   width: 16px;
@@ -248,6 +248,7 @@ h1 {
 }
 
 .metadata-badge.active {
+  display: none;
   background: #e6f4ea;
   color: #1e8e3e;
 }
@@ -255,6 +256,7 @@ h1 {
 .metadata-badge.last-accessed {
   background: #fff4e5;
   color: #e37400;
+  display: none;
 }
 
 .tab-group-indicator {
