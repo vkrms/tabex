@@ -12,6 +12,9 @@ let currentSortPreference = DEFAULT_SORT;
 // Collapsed windows state
 let collapsedWindows = {};
 
+// DOM caches for incremental rendering
+const windowGroupMap = new Map(); // windowId -> { group, header, chevron, info, title, tabsContainer, tabMap }
+
 // Load collapsed windows state from storage
 async function loadCollapsedState() {
   const result = await chrome.storage.local.get(['collapsedWindows']);
@@ -321,6 +324,137 @@ function createTabElement(tab, windowId) {
   return tabItem;
 }
 
+// Update existing tab element in place
+function updateTabElement(tabElement, tab, windowId) {
+  tabElement.classList.toggle('active', !!tab.active);
+  tabElement.dataset.windowId = windowId;
+  tabElement.dataset.tabId = tab.id;
+
+  const groupIndicator = tabElement.querySelector('.tab-group-indicator');
+  if (tab.group) {
+    if (groupIndicator) {
+      groupIndicator.style.backgroundColor = getGroupColor(tab.group.color);
+    } else {
+      const newIndicator = document.createElement('div');
+      newIndicator.className = 'tab-group-indicator';
+      newIndicator.style.backgroundColor = getGroupColor(tab.group.color);
+      tabElement.insertBefore(newIndicator, tabElement.firstChild);
+    }
+  } else if (groupIndicator) {
+    groupIndicator.remove();
+  }
+
+  const faviconImg = tabElement.querySelector('.tab-favicon img');
+  if (faviconImg && faviconImg.src !== tab.favIconUrl) {
+    faviconImg.src = tab.favIconUrl;
+  }
+
+  const title = tabElement.querySelector('.tab-title');
+  if (title && title.textContent !== tab.title) {
+    title.textContent = tab.title;
+    title.title = tab.title;
+  }
+
+  const url = tabElement.querySelector('.tab-url');
+  if (url && url.textContent !== tab.url) {
+    url.textContent = tab.url;
+    url.title = tab.url;
+  }
+
+  const metadata = tabElement.querySelector('.tab-metadata');
+  if (metadata) {
+    metadata.innerHTML = '';
+
+    if (tab.active) {
+      const activeBadge = document.createElement('span');
+      activeBadge.className = 'metadata-badge active';
+      activeBadge.textContent = '● Active';
+      metadata.appendChild(activeBadge);
+    }
+
+    if (tab.pinned) {
+      const pinnedBadge = document.createElement('span');
+      pinnedBadge.className = 'metadata-badge';
+      pinnedBadge.textContent = '📌 Pinned';
+      metadata.appendChild(pinnedBadge);
+    }
+
+    if (tab.group) {
+      const groupBadge = document.createElement('span');
+      groupBadge.className = 'metadata-badge group';
+      groupBadge.textContent = `📁 ${tab.group.title}`;
+      metadata.appendChild(groupBadge);
+    }
+
+    if (tab.lastAccessed) {
+      const timeBadge = document.createElement('span');
+      timeBadge.className = 'metadata-badge last-accessed';
+      timeBadge.textContent = `🕒 ${formatTimeAgo(tab.lastAccessed)}`;
+      metadata.appendChild(timeBadge);
+    }
+  }
+}
+
+// Create or update a window group
+function getOrCreateWindowGroup(windowData, tabCountText) {
+  const existing = windowGroupMap.get(windowData.windowId);
+  if (existing) {
+    existing.info.textContent = tabCountText;
+    existing.title.textContent = windowData.focused ? 'Window (Current)' : 'Window';
+    existing.chevron.textContent = collapsedWindows[windowData.windowId] ? '▶' : '▼';
+    existing.group.classList.toggle('collapsed', !!collapsedWindows[windowData.windowId]);
+    return existing;
+  }
+
+  const windowGroup = document.createElement('div');
+  windowGroup.className = 'window-group';
+
+  const windowHeader = document.createElement('div');
+  windowHeader.className = 'window-header';
+
+  const windowInfo = document.createElement('span');
+  windowInfo.className = 'window-id';
+  windowInfo.textContent = tabCountText;
+
+  const windowTitle = document.createElement('span');
+  windowTitle.textContent = windowData.focused ? 'Window (Current)' : 'Window';
+
+  const chevron = document.createElement('span');
+  chevron.className = 'window-chevron';
+  chevron.textContent = collapsedWindows[windowData.windowId] ? '▶' : '▼';
+
+  windowHeader.appendChild(windowInfo);
+  windowHeader.appendChild(windowTitle);
+  windowHeader.appendChild(chevron);
+
+  windowHeader.addEventListener('click', () => {
+    toggleWindowCollapse(windowData.windowId, windowGroup, chevron);
+  });
+
+  if (collapsedWindows[windowData.windowId]) {
+    windowGroup.classList.add('collapsed');
+  }
+
+  const tabsContainer = document.createElement('div');
+  tabsContainer.className = 'tabs-container';
+
+  windowGroup.appendChild(windowHeader);
+  windowGroup.appendChild(tabsContainer);
+
+  const cached = {
+    group: windowGroup,
+    header: windowHeader,
+    chevron,
+    info: windowInfo,
+    title: windowTitle,
+    tabsContainer,
+    tabMap: new Map()
+  };
+
+  windowGroupMap.set(windowData.windowId, cached);
+  return cached;
+}
+
 // Get group color in hex
 function getGroupColor(colorName) {
   const colors = {
@@ -340,13 +474,17 @@ function getGroupColor(colorName) {
 // Render all tabs
 async function renderTabs(searchQuery = '') {
   const container = document.getElementById('tabs-container');
-  container.innerHTML = '';
-
   const windows = await getAllTabs();
 
   if (windows.length === 0) {
     container.innerHTML = '<div class="no-results">No tabs found</div>';
+    windowGroupMap.clear();
     return;
+  }
+
+  const noResults = container.querySelector('.no-results');
+  if (noResults) {
+    noResults.remove();
   }
 
   // Apply sorting
@@ -354,75 +492,71 @@ async function renderTabs(searchQuery = '') {
 
   let totalTabs = 0;
   const query = searchQuery.toLowerCase();
+  const visibleWindowIds = new Set();
 
   sortedWindows.forEach(window => {
     const filteredTabs = window.tabs.filter(tab => {
       if (!query) return true;
-      return tab.title.toLowerCase().includes(query) || 
+      return tab.title.toLowerCase().includes(query) ||
              tab.url.toLowerCase().includes(query);
     });
-    
+
     if (filteredTabs.length === 0) return;
-    
+
     totalTabs += filteredTabs.length;
-    
-    // Create window group
-    const windowGroup = document.createElement('div');
-    windowGroup.className = 'window-group';
-    
-    const windowHeader = document.createElement('div');
-    windowHeader.className = 'window-header';
 
-    // Add chevron icon for collapse/expand
-    const chevron = document.createElement('span');
-    chevron.className = 'window-chevron';
-    chevron.textContent = collapsedWindows[window.windowId] ? '▶' : '▼';
+    const groupCache = getOrCreateWindowGroup(window, `${filteredTabs.length} tabs`);
+    visibleWindowIds.add(window.windowId);
 
-    const windowInfo = document.createElement('span');
-    windowInfo.className = 'window-id';
-    windowInfo.textContent = `${filteredTabs.length} tabs`;
+    const visibleTabIds = new Set();
+    filteredTabs.forEach(tab => {
+      visibleTabIds.add(tab.id);
 
-    const windowTitle = document.createElement('span');
-    windowTitle.textContent = window.focused ? 'Window (Current)' : 'Window';
+      let tabElement = groupCache.tabMap.get(tab.id);
+      if (!tabElement) {
+        tabElement = createTabElement(tab, window.windowId);
+        tabElement.dataset.windowId = window.windowId;
+        tabElement.dataset.tabId = tab.id;
+        groupCache.tabMap.set(tab.id, tabElement);
+      } else {
+        updateTabElement(tabElement, tab, window.windowId);
+      }
 
-    // Layout: [tab count] [title] [chevron]
-    windowHeader.appendChild(windowInfo);
-    windowHeader.appendChild(windowTitle);
-    windowHeader.appendChild(chevron);
-
-    // Add click handler for collapse/expand
-    windowHeader.addEventListener('click', () => {
-      toggleWindowCollapse(window.windowId, windowGroup, chevron);
+      groupCache.tabsContainer.appendChild(tabElement);
     });
 
-    // Add collapsed class if needed
-    if (collapsedWindows[window.windowId]) {
-      windowGroup.classList.add('collapsed');
+    for (const [tabId, el] of groupCache.tabMap.entries()) {
+      if (!visibleTabIds.has(tabId)) {
+        if (el && el.parentNode) {
+          el.parentNode.removeChild(el);
+        }
+        groupCache.tabMap.delete(tabId);
+      }
     }
 
-    windowGroup.appendChild(windowHeader);
-    
-    // Add tabs
-    filteredTabs.forEach(tab => {
-      const tabElement = createTabElement(tab, window.windowId);
-      windowGroup.appendChild(tabElement);
-    });
-    
-    container.appendChild(windowGroup);
+    container.appendChild(groupCache.group);
   });
-  
-  // Update window and tab counts
+
+  for (const [windowId, cached] of windowGroupMap.entries()) {
+    if (!visibleWindowIds.has(windowId)) {
+      if (cached && cached.group.parentNode) {
+        cached.group.parentNode.removeChild(cached.group);
+      }
+      windowGroupMap.delete(windowId);
+    }
+  }
+
   const windowCount = sortedWindows.filter(w => w.tabs.filter(tab => {
     if (!query) return true;
-    return tab.title.toLowerCase().includes(query) || 
+    return tab.title.toLowerCase().includes(query) ||
            tab.url.toLowerCase().includes(query);
   }).length > 0).length;
-  
-  document.getElementById('window-count').textContent = 
+
+  document.getElementById('window-count').textContent =
     `${windowCount} window${windowCount !== 1 ? 's' : ''}`;
-  document.getElementById('tab-count').textContent = 
+  document.getElementById('tab-count').textContent =
     `${totalTabs} tab${totalTabs !== 1 ? 's' : ''}`;
-  
+
   if (totalTabs === 0) {
     container.innerHTML = '<div class="no-results">No tabs match your search</div>';
   }
@@ -431,7 +565,7 @@ async function renderTabs(searchQuery = '') {
 // Initialize search functionality
 function initSearch() {
   const searchInput = document.getElementById('search-input');
-  
+
   // Note: debouncing is handled in the main initialization
   searchInput.addEventListener('input', (e) => {
     // Trigger debounced render via custom event
@@ -466,7 +600,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   
   // Listen for tab changes to update in real-time
-  const onUpdatedListener = () => debouncedRender();
+  const onUpdatedListener = (_tabId, changeInfo) => {
+    const changeKeys = Object.keys(changeInfo || {});
+    if (changeKeys.length === 1 && changeKeys[0] === 'title') {
+      return;
+    }
+    debouncedRender();
+  };
   const onCreatedListener = () => debouncedRender();
   const onRemovedListener = () => debouncedRender();
   const onActivatedListener = (activeInfo) => {
